@@ -26,16 +26,16 @@ implementation
 
 {$R *.DFM}
 
-Uses TntRegistry,Definitions,RamCreate,RamRemove;
+Uses Registry,Definitions,RamCreate,RamRemove;
 
 Var
   config:TRamDisk;
 
 procedure LoadSettings;
 var
-  reg: TTntRegistry;
+  reg: TRegistry;
 Begin
-  reg:=TTntRegistry.Create(KEY_READ);
+  reg:=TRegistry.Create(KEY_READ);
   Try
     DebugLog('Reading settings from registry');
     reg.RootKey:=HKEY_LOCAL_MACHINE;
@@ -54,12 +54,12 @@ Begin
       if reg.ValueExists('LoadContent') Then
       Begin
         config.persistentFolder:=reg.ReadString('LoadContent');
-        DebugLog(WideFormat('Reading LoadContent = %s',[config.persistentFolder]));
+        DebugLog(Format('Reading LoadContent = %s',[config.persistentFolder]));
       end;
       if reg.ValueExists('ExcludeFolders') Then
       Begin
         config.excludedList:=reg.ReadString('ExcludeFolders');
-        DebugLog(WideFormat('Reading ExcludeFolders = %s',[config.excludedList]));
+        DebugLog(Format('Reading ExcludeFolders = %s',[config.excludedList]));
       end;
       if reg.ValueExists('UseTempFolder') Then
       Begin
@@ -96,9 +96,9 @@ end;
 
 procedure TArsenalRamDisk.ServiceAfterInstall(Sender: TService);
 var
-  reg:TTntRegistry;
+  reg:TRegistry;
 begin
-  Reg := TTntRegistry.Create(KEY_READ or KEY_WRITE);
+  Reg := TRegistry.Create(KEY_READ or KEY_WRITE);
   try
     Reg.RootKey := HKEY_LOCAL_MACHINE;
     if Reg.OpenKey('\SYSTEM\CurrentControlSet\Services\' + Name, false) then
@@ -132,7 +132,7 @@ begin
     if CreateRamDisk(config,False) Then Started:=True;
   except
     On E:ERamDiskError do DebugLog(decodeException(E.ArsenalCode));
-    On E:Exception do DebugLog(E.Message);
+    On E:Exception do DebugLog(E.ClassName + ': ' + E.Message);
   End;
 end;
 
@@ -146,7 +146,7 @@ begin
       If DetachRamDisk(config) then Stopped:=True;
     except
       On E:ERamDiskError do DebugLog(decodeException(E.ArsenalCode));
-      On E:Exception Do DebugLog(E.Message);
+      On E:Exception Do DebugLog(E.ClassName + ': ' + E.Message);
     end;
   End
   Else Stopped:=True;

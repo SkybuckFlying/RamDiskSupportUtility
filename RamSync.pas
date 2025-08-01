@@ -6,30 +6,30 @@ Uses Definitions;
 
 procedure LoadRamDisk(Var config:TRamDisk);
 procedure SaveRamDisk(Var existing:TRamDisk);
-procedure RestoreTempFolder(letter:WideChar);
+procedure RestoreTempFolder(letter:Char);
 
 implementation
 
-uses SysUtils,Windows,TntRegistry,TntSysUtils,TntClasses,Junctions;
+uses SysUtils,Windows,Registry,Classes,Junctions;
 
 const
   DIR_ATTR = FILE_ATTRIBUTE_DIRECTORY or FILE_ATTRIBUTE_REPARSE_POINT;
 
 type
-  TStrArray = Array of WideString;
+  TStrArray = Array of string;
   TPathList = Array Of TStrArray;
 
-procedure CopyTime(const src,dest:WideString);
+procedure CopyTime(const src,dest:string);
 var
   hDir:THandle;
   creationTime,accessTime,writeTime:TFileTime;
 Begin
-  hDir := CreateFileW(PWideChar(src), 0, FILE_SHARE_READ, NIL, OPEN_EXISTING, 0, 0);
+  hDir := CreateFile(PChar(src), 0, FILE_SHARE_READ, NIL, OPEN_EXISTING, 0, 0);
   if hDir <> INVALID_HANDLE_VALUE Then
   begin
     GetFileTime(hDir,@creationTime,@accessTime,@writeTime);
     CloseHandle(hDir);
-    hDir := CreateFileW(PWideChar(dest), GENERIC_WRITE, FILE_SHARE_WRITE, NIL, OPEN_EXISTING, 0, 0);
+    hDir := CreateFile(PChar(dest), GENERIC_WRITE, FILE_SHARE_WRITE, NIL, OPEN_EXISTING, 0, 0);
     if hDir <> INVALID_HANDLE_VALUE Then
     begin
       SetFileTime(hDir,@creationTime,@accessTime,@writeTime);
@@ -38,43 +38,46 @@ Begin
   end;
 end;
 
-procedure TreeCopy(const src,dest:WideString);
+procedure TreeCopy(const src,dest:string);
 var
-  SR: TSearchRecW;
-  junction,current,source: WideString;
+  SR: TSearchRec;
+  junction,current,source: string;
 Begin
-  if WideFindFirst(src+'*.*',faAnyFile,SR)<>0 then Exit;
-  repeat
-    if (SR.Name <> '.') and (SR.Name <> '..') then
-    begin
-      //Application.ProcessMessages;
-      current:=dest + SR.Name;
-      source:=src + SR.Name;
-      if (SR.Attr and faDirectory) <> 0 then
+  if FindFirst(src+'*.*',faAnyFile,SR)<>0 then Exit;
+  try
+    repeat
+      if (SR.Name <> '.') and (SR.Name <> '..') then
       begin
-        WideCreateDir(current);
-        // check for junction point
-        if (GetFileAttributesW(PWideChar(source)) and DIR_ATTR) = DIR_ATTR Then
-        Begin
-          junction:=GetSymLinkTarget(source);
-          If junction<>'' Then
+        //Application.ProcessMessages;
+        current:=dest + SR.Name;
+        source:=src + SR.Name;
+        if (SR.Attr and faDirectory) <> 0 then
+        begin;
+          CreateDir(current);
+          // check for junction point
+          if (GetFileAttributes(PChar(source)) and DIR_ATTR) = DIR_ATTR Then
           Begin
-            CreateJunction(current, junction);
-            CopyTime(source,current);
-            Continue;
+            junction:=GetSymLinkTarget(source);
+            If junction<>'' Then
+            Begin
+              CreateJunction(current, junction);
+              CopyTime(source,current);
+              Continue;
+            end;
           end;
-        end;
-        TreeCopy(src + SR.Name + '\', dest + SR.Name + '\');
-        CopyTime(source,current);
-      end
-      else
-      Begin
-        CopyFileW(PWideChar(source), PWideChar(current),False); // we don't care if it is a symlink
-        CopyTime(source,current);
-      End;
-    end;
-  Until WideFindNext(SR) <> 0;
-  WideFindClose(SR);
+          TreeCopy(src + SR.Name + '\', dest + SR.Name + '\');
+          CopyTime(source,current);
+        end
+        else
+        Begin
+          CopyFile(PChar(source), PChar(current),False); // we don't care if it is a symlink
+          CopyTime(source,current);
+        End;
+      end;
+    Until FindNext(SR) <> 0;
+  finally
+    FindClose(SR);
+  end;
 end;
 
 procedure DelTree(const path:String);
@@ -82,30 +85,33 @@ var
   SR: TSearchRec;
 Begin
   if FindFirst(path+'*.*',faAnyFile,SR)<>0 then Exit;
-  Repeat
-    if (SR.Name <> '.') and (SR.Name <> '..') then
-    begin
-      if (SR.Attr and faDirectory) <> 0 then
-      Begin
-        DelTree(path + SR.Name + '\');
-        RemoveDir(path + SR.Name);
-      end
-      else SysUtils.DeleteFile(path + SR.Name);
-    end;
-  Until FindNext(SR) <> 0;
-  SysUtils.FindClose(SR);
+  try
+    Repeat
+      if (SR.Name <> '.') and (SR.Name <> '..') then
+      begin;
+        if (SR.Attr and faDirectory) <> 0 then
+        Begin
+          DelTree(path + SR.Name + '\');
+          RemoveDir(path + SR.Name);
+        end
+        else SysUtils.DeleteFile(path + SR.Name);
+      end;
+    Until FindNext(SR) <> 0;
+  finally
+    SysUtils.FindClose(SR);
+  end;
   RemoveDir(path);
 end;
 
 Procedure LoadRamDisk(Var config:TRamDisk);
 Var
-  reg: TTntRegistry;
+  reg: TRegistry;
   tempDir:String;
 Begin
   DebugLog('Configuring RAM-disk');
   If (config.persistentFolder<>'') And DirectoryExists(config.persistentFolder) Then
   Begin
-    TreeCopy(WideIncludeTrailingPathDelimiter(config.persistentFolder),config.letter+':\');
+    TreeCopy(IncludeTrailingPathDelimiter(config.persistentFolder),config.letter+':\');
     DebugLog('RAM-disk was populated with content from ' + config.persistentFolder);
   end;
   If config.useTemp Then
@@ -116,7 +122,7 @@ Begin
     Begin
       reg:=Nil;
       Try
-        reg:=TTntRegistry.Create(KEY_WRITE);
+        reg:=TRegistry.Create(KEY_WRITE);
         reg.RootKey:=HKEY_LOCAL_MACHINE;
         if Reg.OpenKey('SYSTEM\CurrentControlSet\Control\Session Manager\Environment', True) then
         Begin
@@ -143,16 +149,16 @@ Begin
   DelTree(config.letter+':\$RECYCLE.BIN\');
 end;
 
-procedure RestoreTempFolder(letter:WideChar);
+procedure RestoreTempFolder(letter:Char);
 Var
-  reg: TTntRegistry;
+  reg: TRegistry;
   tmpFolder, tempFolder: String;
-  tmp:WideString;
+  tmp:string;
 Begin
   reg:=Nil;
   try
     DebugLog('Switching to the default TEMP folder');
-    reg:=TTntRegistry.Create(KEY_ALL_ACCESS);
+    reg:=TRegistry.Create(KEY_ALL_ACCESS);
     // read defaults
     reg.RootKey:=HKEY_USERS;
     if Reg.OpenKey('.DEFAULT\Environment', False) then
@@ -168,13 +174,13 @@ Begin
     if Reg.OpenKey('SYSTEM\CurrentControlSet\Control\Session Manager\Environment', True) then
     Begin
       // restore default only if current setting was using the just unmounted Ramdisk
-      tmp:=WideUpperCase(reg.ReadString('TMP'));
+      tmp:=UpperCase(reg.ReadString('TMP'));
       If (tmp<>'')And(tmp[1] = letter) then
       Begin
         reg.WriteExpandString('TMP',tmpFolder);
         DebugLog('Restoring TMP folder for all users');
       End;
-      tmp:=WideUpperCase(reg.ReadString('TEMP'));
+      tmp:=UpperCase(reg.ReadString('TEMP'));
       If (tmp<>'')and(tmp[1] = letter) then
       Begin
         reg.WriteExpandString('TEMP',tempFolder);
@@ -186,13 +192,13 @@ Begin
     reg.RootKey:=HKEY_CURRENT_USER;
     if Reg.OpenKey('Environment', True) then
     Begin
-      tmp:=WideUpperCase(reg.ReadString('TMP'));
+      tmp:=UpperCase(reg.ReadString('TMP'));
       If (tmp<>'')and(tmp[1] = letter) then
       Begin
         reg.WriteExpandString('TMP',tmpFolder);
         DebugLog('Restoring TMP folder for the current user');
       end;
-      tmp:=WideUpperCase(reg.ReadString('TEMP'));
+      tmp:=UpperCase(reg.ReadString('TEMP'));
       If (tmp<>'')and(tmp[1] = letter) then
       Begin
         reg.WriteExpandString('TEMP',tempFolder);
@@ -205,18 +211,18 @@ Begin
   end;
 end;
 
-Function NewerSource(const src,dest:WideString):Boolean;
+Function NewerSource(const src,dest:string):Boolean;
 var
   hDir:THandle;
   srcCreation,srcAccess,srcModify,destCreation,destAccess,destModify:TFileTime;
 Begin
   Result:=False;
-  hDir := CreateFileW(PWideChar(src), 0, FILE_SHARE_READ, NIL, OPEN_EXISTING, 0, 0);
+  hDir := CreateFile(PChar(src), 0, FILE_SHARE_READ, NIL, OPEN_EXISTING, 0, 0);
   if hDir <> INVALID_HANDLE_VALUE Then
   begin
     GetFileTime(hDir,@srcCreation,@srcAccess,@srcModify);
     CloseHandle(hDir);
-    hDir := CreateFileW(PWideChar(dest), 0, FILE_SHARE_READ, NIL, OPEN_EXISTING, 0, 0);
+    hDir := CreateFile(PChar(dest), 0, FILE_SHARE_READ, NIL, OPEN_EXISTING, 0, 0);
     if hDir <> INVALID_HANDLE_VALUE Then
     begin
       GetFileTime(hDir,@destCreation,@destAccess,@destModify);
@@ -231,71 +237,77 @@ Begin
 end;
 
 // copy from RAM-disk to the persistent folder, excluding disabled paths
-procedure TreeSave(const src,dest:WideString;excluded:TTntStringList);
+procedure TreeSave(const src,dest:string;excluded:TStringList);
 var
-  SR: TSearchRecW;
-  junction,current,source: WideString;
+  SR: TSearchRec;
+  junction,current,source: string;
 Begin
-  DebugLog(WideFormat('Now persisting folder %s',[src]));
-  if WideFindFirst(src+'*.*',faAnyFile,SR)<>0 then Exit;
-  repeat
-    if (SR.Name <> '.') and (SR.Name <> '..') then
-    begin
-      //Application.ProcessMessages;
-      current:=dest + SR.Name;
-      source:=src + SR.Name;
-      if (SR.Attr and faDirectory) <> 0 then
+  DebugLog(Format('Now persisting folder %s',[src]));
+  if FindFirst(src+'*.*',faAnyFile,SR)<>0 then Exit;
+  try
+    repeat
+      if (SR.Name <> '.') and (SR.Name <> '..') then
       begin
-        if Assigned(excluded) And (excluded.IndexOf(WideUpperCase(SR.Name)) <> -1) then Continue;
-        WideCreateDir(current);
-        // check for junction point
-        if (GetFileAttributesW(PWideChar(source)) and DIR_ATTR) = DIR_ATTR Then
-        Begin
-          junction:=GetSymLinkTarget(source);
-          If junction<>'' Then
+        //Application.ProcessMessages;
+        current:=dest + SR.Name;
+        source:=src + SR.Name;
+        if (SR.Attr and faDirectory) <> 0 then
+        begin
+          if Assigned(excluded) And (excluded.IndexOf(UpperCase(SR.Name)) <> -1) then Continue;
+          CreateDir(current);
+          // check for junction point
+          if (GetFileAttributes(PChar(source)) and DIR_ATTR) = DIR_ATTR Then
           Begin
-            CreateJunction(current, junction);
-            Continue;
+            junction:=GetSymLinkTarget(source);
+            If junction<>'' Then
+            Begin
+              CreateJunction(current, junction);
+              Continue;
+            end;
           end;
-        end;
-        TreeSave(source + '\', current + '\',Nil);
-      end
-      else
-      Begin
-        if NewerSource(source,current) then CopyFileW(PWideChar(source), PWideChar(current),False); // overwrite existing
-      End;
-    end;
-  Until WideFindNext(SR) <> 0;
-  WideFindClose(SR);
+          TreeSave(source + '\', current + '\',Nil);
+        end
+        else
+        Begin
+          if NewerSource(source,current) then CopyFile(PChar(source), PChar(current),False); // overwrite existing
+        End;
+      end;
+    Until FindNext(SR) <> 0;
+  finally
+    FindClose(SR);
+  end;
 end;
 
 // delete from persistent folder items which are no longer present on the RAM-disk
-procedure TreeDelete(const src,dest:WideString;excluded:TTntStringList);
+procedure TreeDelete(const src,dest:string;excluded:TStringList);
 var
-  SR: TSearchRecW;
+  SR: TSearchRec;
 Begin
-  DebugLog(WideFormat('Now removing folder %s',[src]));
-  if WideFindFirst(src+'*.*',faAnyFile,SR)<>0 then Exit;
-  repeat
-    if (SR.Name <> '.') and (SR.Name <> '..') then
-    begin
-      //Application.ProcessMessages;
-      if (SR.Attr and faDirectory) <> 0 then
+  DebugLog(Format('Now removing folder %s',[src]));
+  if FindFirst(src+'*.*',faAnyFile,SR)<>0 then Exit;
+  try
+    repeat
+      if (SR.Name <> '.') and (SR.Name <> '..') then
       begin
-        if Assigned(excluded) And (excluded.IndexOf(WideUpperCase(SR.Name)) <> -1) then Continue;
-        TreeDelete(src + SR.Name + '\', dest + SR.Name + '\',Nil);
-        if not DirectoryExists(dest + SR.Name) then WideRemoveDir(src + SR.Name);
-      end
-      else
-      Begin
-        if Not FileExists(dest + SR.Name) Then WideDeleteFile(src + SR.Name);
-      End;
-    end;
-  Until WideFindNext(SR) <> 0;
-  WideFindClose(SR);
+        //Application.ProcessMessages;
+        if (SR.Attr and faDirectory) <> 0 then
+        begin
+          if Assigned(excluded) And (excluded.IndexOf(UpperCase(SR.Name)) <> -1) then Continue;
+          TreeDelete(src + SR.Name + '\', dest + SR.Name + '\',Nil);
+          if not DirectoryExists(dest + SR.Name) then RemoveDir(src + SR.Name);
+        end
+        else
+        Begin
+          if Not FileExists(dest + SR.Name) Then DeleteFile(src + SR.Name);
+        End;
+      end;
+    Until FindNext(SR) <> 0;
+  finally
+    FindClose(SR);
+  end;
 end;
 
-Procedure SplitPath(const path:WideString;var list:TStrArray);
+Procedure SplitPath(const path:string;var list:TStrArray);
 var
   oldPos,newPos,k:Integer;
 Begin
@@ -303,7 +315,7 @@ Begin
   k:=0;
   oldPos:=1;
   Repeat
-    newPos:=WidePosEx('\',path,oldPos);
+    newPos:=PosEx('\',path,oldPos);
     if newPos=0 then list[k]:=Copy(path,oldPos,MaxInt)
     Else
     Begin
@@ -317,32 +329,32 @@ end;
 
 Procedure SaveRamDisk(Var existing:TRamDisk);
 var
-  list:TTntStringList;
+  list:TStringList;
 Begin
   DebugLog('Trying to persist RamDisk before unmount');
-  if WideDirectoryExists(existing.persistentFolder) then
+  if DirectoryExists(existing.persistentFolder) then
   Begin
     list:=Nil;
     try
-      list:=TTntStringList.Create;
-      list.Text:=WideUpperCase(existing.excludedList);
+      list:=TStringList.Create;
+      list.Text:=UpperCase(existing.excludedList);
       list.Add('TEMP'); // always exclude TEMP folder and system folders
       list.Add('$RECYCLE.BIN');
       list.Add('System Volume Information');
       // first we persist RAM-disk, excluding disabled paths
-      TreeSave(existing.letter+':\',WideIncludeTrailingPathDelimiter(existing.persistentFolder),list);
+      TreeSave(existing.letter+':\',IncludeTrailingPathDelimiter(existing.persistentFolder),list);
       DebugLog('RamDisk content was persisted');
       // then we delete the data that is not present on the RAM-disk
       if existing.deleteOld then
-      Begin
-        TreeDelete(WideIncludeTrailingPathDelimiter(existing.persistentFolder),existing.letter+':\',list);
+      Begin;
+        TreeDelete(IncludeTrailingPathDelimiter(existing.persistentFolder),existing.letter+':\',list);
         DebugLog('Obsolete data inside the synchronization folder was removed');
       End;
     Finally
       list.Free;
     end;
   End
-  else DebugLog(WideFormat('Folder "%s" does not exist',[existing.persistentFolder]),EVENTLOG_ERROR_TYPE);
+  else DebugLog(Format('Folder "%s" does not exist',[existing.persistentFolder]),EVENTLOG_ERROR_TYPE);
 end;
 
 end.

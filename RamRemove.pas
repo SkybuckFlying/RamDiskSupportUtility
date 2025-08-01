@@ -36,7 +36,7 @@ begin
   Result := DeviceIoControl(AVolumeHandle, IOCTL_STORAGE_EJECT_MEDIA, nil, 0, nil, 0, BytesReturned, nil);
 end;
 
-Procedure ImDiskNotifyRemovePending(DriveLetter:WideChar);
+Procedure ImDiskNotifyRemovePending(DriveLetter:Char);
 var
   dwp: DWORD;
   devBroadcastVol: TDevBroadcastVolume;
@@ -62,7 +62,7 @@ Begin
     dwp);
 end;
 
-Function ImScsiRemoveDeviceByNumber(hWnd, adapter: THandle; DeviceNumber: TDeviceNumber):Boolean;
+Function ImScsiRemoveDeviceByNumber(adapter: THandle; DeviceNumber: TDeviceNumber):Boolean;
 Var
   dw: DWORD;
   remove_device: TScsiRemoveDevice;
@@ -101,20 +101,24 @@ Begin
       else DebugLog(SysErrorMessage(dw),EVENTLOG_ERROR_TYPE);
       raise ERamDiskError.Create(RamNotInstalled);
     end;
-    deviceNumber.LongNumber:=IMSCSI_ALL_DEVICES;
-    if not ImScsiRemoveDeviceByNumber(0, adapter, DeviceNumber) then
-    begin
-      dw:=GetLastError;
-      if dw = ERROR_FILE_NOT_FOUND then
+    try
+      deviceNumber.LongNumber:=IMSCSI_ALL_DEVICES;
+      if not ImScsiRemoveDeviceByNumber(adapter, DeviceNumber) then
       begin
-        DebugLog('The SCSI device of the RAM-disk was not found',EVENTLOG_ERROR_TYPE);
-        Exit;
-      end
-      else
-      begin
-        DebugLog(SysErrorMessage(dw),EVENTLOG_ERROR_TYPE);
-        Exit;
+        dw:=GetLastError;
+        if dw = ERROR_FILE_NOT_FOUND then
+        begin
+          DebugLog('The SCSI device of the RAM-disk was not found',EVENTLOG_ERROR_TYPE);
+          Exit;
+        end
+        else
+        begin
+          DebugLog(SysErrorMessage(dw),EVENTLOG_ERROR_TYPE);
+          Exit;
+        end;
       end;
+    finally
+      CloseHandle(adapter);
     end;
     DebugLog('RamDisk device has been destroyed');
     Result:=True;
@@ -145,14 +149,14 @@ Begin
       raise Exception.Create(SysErrorMessage(tmp));
     end;
   End;
-  // Notify processes that this device is about to be removed.
-  DebugLog('Now notifying other processes that this device is about to be removed');
-  ImDiskNotifyRemovePending(WideChar(existing.letter));
-  DebugLog('Flushing OS file buffers');
-  FlushFileBuffers(device);
-
-  // Locking volume
   try
+    // Notify processes that this device is about to be removed.
+    DebugLog('Now notifying other processes that this device is about to be removed');
+    ImDiskNotifyRemovePending(existing.letter);
+    DebugLog('Flushing OS file buffers');
+    FlushFileBuffers(device);
+
+    // Locking volume
     DebugLog('Locking the volume');
     if Not DeviceIoControl(device, FSCTL_LOCK_VOLUME, NIL, 0, NIL, 0, dw, NIL) then
     Begin
@@ -184,7 +188,7 @@ Begin
   finally
     CloseHandle(device);
   end;
-  RestoreTempFolder(WideChar(existing.letter)); // MUST be before UpdateDismounted because it will clear the Letter
+  RestoreTempFolder(existing.letter); // MUST be before UpdateDismounted because it will clear the Letter
 end;
 
 end.

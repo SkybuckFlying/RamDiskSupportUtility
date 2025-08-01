@@ -2,11 +2,13 @@ unit RamSetup;
 
 interface
 
+uses Windows;
+
 Function ImScsiRescanScsiAdapterAsync(AsyncFlag:Boolean):THandle;
 
 implementation
 
-uses Windows,SysUtils,Classes,Definitions;
+uses SysUtils,Classes,Definitions;
 
 const
   CfgMgrDllName = 'cfgmgr32.dll';
@@ -17,18 +19,18 @@ const
 
 type
   DEVINST = DWORD;
-  DEVINSTID_A = PAnsiChar;
+  DEVINSTID = PChar;
   RETURN_TYPE = DWORD;
   CONFIGRET = RETURN_TYPE;
   TThreadStartFunc = Function (Event:THandle):DWORD; Stdcall;
 
 function QueueUserWorkItem (func: TThreadStartFunc; Context: Pointer; Flags: DWORD): BOOL; stdcall; external kernel32;
-function CM_Locate_DevNode(var dnDevInst: DEVINST; pDeviceID: DEVINSTID_A; ulFlags: ULONG): CONFIGRET; stdcall; external CfgMgrDllName name 'CM_Locate_DevNodeA';
+function CM_Locate_DevNode(var dnDevInst: DEVINST; pDeviceID: DEVINSTID; ulFlags: ULONG): CONFIGRET; stdcall; external CfgMgrDllName name 'CM_Locate_DevNodeW';
 function CM_Reenumerate_DevNode(var dnDevInst: DEVINST; ulFlags: ULONG): CONFIGRET; stdcall; external CfgMgrDllName;
-function CM_Get_Device_ID_List(const pszFilter: PAnsiChar; Buffer: PAnsiChar; BufferLen: ULONG; ulFlags: ULONG): CONFIGRET; stdcall; External CfgMgrDllName name 'CM_Get_Device_ID_ListA';
-function CM_Get_Device_ID_List_Size(var ulLen: ULONG; const pszFilter: PAnsiChar; ulFlags: ULONG): CONFIGRET; stdcall; External CfgMgrDllName name 'CM_Get_Device_ID_List_SizeA';
+function CM_Get_Device_ID_List(const pszFilter: PChar; Buffer: PChar; BufferLen: ULONG; ulFlags: ULONG): CONFIGRET; stdcall; External CfgMgrDllName name 'CM_Get_Device_ID_ListW';
+function CM_Get_Device_ID_List_Size(var ulLen: ULONG; const pszFilter: PChar; ulFlags: ULONG): CONFIGRET; stdcall; External CfgMgrDllName name 'CM_Get_Device_ID_List_SizeW';
 
-Function ImScsiScanForHardwareChanges(rootid:DEVINSTID_A = Nil; flags:DWORD = 0):DWORD;
+Function ImScsiScanForHardwareChanges(rootid:DEVINSTID = Nil; flags:DWORD = 0):DWORD;
 Var
   dev_inst: DEVINST;
   status: DWORD;
@@ -49,21 +51,21 @@ begin
   Result:=0;
 end;
 
-function ImScsiAllocateDeviceInstanceListForService(service:string;var instances:PAnsiChar):Integer;
+function ImScsiAllocateDeviceInstanceListForService(service:string;var instances:PChar):Integer;
 var
   length,status:DWORD;
 Begin
   length:=0;
   Result:=0;
-  status := CM_Get_Device_ID_List_Size(length, PAnsiChar(service), CM_GETIDLIST_FILTER_SERVICE);
+  status := CM_Get_Device_ID_List_Size(length, PChar(service), CM_GETIDLIST_FILTER_SERVICE);
   if status = CR_SUCCESS then
   begin
-    instances := Pointer(LocalAlloc(LMEM_FIXED, sizeof(Char) * length));
+    instances := AllocMem(sizeof(Char) * length);
     if Not Assigned(instances) then Exit;
-    status := CM_Get_Device_ID_List(PAnsiChar(service), instances, length, CM_GETIDLIST_FILTER_SERVICE);
+    status := CM_Get_Device_ID_List(PChar(service), instances, length, CM_GETIDLIST_FILTER_SERVICE);
     if status <> CR_SUCCESS then
     begin
-      LocalFree(Cardinal(instances));
+      FreeMem(instances);
       //ImScsiDebugMessage(L"Error enumerating instances for service %1!ws!: %2!#x!", service, status);
     End
     Else Result:=length;
@@ -73,7 +75,7 @@ end;
 Function ImScsiRescanScsiAdapter:Boolean;
 var
   i,length:Integer;
-  hwinstances:PAnsiChar;
+  hwinstances:PChar;
   status: DWORD;
 Begin
   hwinstances := NIL;
@@ -94,7 +96,8 @@ Begin
       Inc(i,1 + StrLen(hwinstances + i));
     end;
   Finally
-    LocalFree(Cardinal(hwinstances));
+    if Assigned(hwinstances) then
+      FreeMem(hwinstances);
   end;
 end;
 

@@ -4,7 +4,7 @@ interface
 
 uses
   Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
-  Dialogs, StdCtrls, ExtCtrls, TntStdCtrls;
+  Dialogs, StdCtrls, ExtCtrls;
 
 type
   TfrmUI = class(TForm)
@@ -26,8 +26,8 @@ type
     grpRAM: TGroupBox;
     lamp: TShape;
     txtSize: TLabel;
-    editFolder: TTntEdit;
-    memoIgnore: TTntMemo;
+    editFolder: TEdit;
+    memoIgnore: TMemo;
     btnInstall: TButton;
     btnUninstall: TButton;
     procedure btnApplyClick(Sender: TObject);
@@ -47,6 +47,7 @@ type
     Procedure UpdateLetters;
     Procedure SaveSettings;
     Procedure LoadSettings;
+    function ExecuteProcess(const AFileName, AParameters: string; AShowCmd: Word): Boolean;
   public
     { Public declarations }
   end;
@@ -58,13 +59,34 @@ implementation
 
 {$R *.dfm}
 
-Uses Definitions,RamDetect,RamRemove,RamCreate,Types,StrUtils,WinSvc,TntRegistry,TntFileCtrl,TntSysUtils;
+Uses Definitions,RamDetect,RamRemove,RamCreate,Types,StrUtils,WinSvc,Registry,FileCtrl;
 
 const
   serviceName = 'ArsenalRamDisk';
 
 Var
   ramDiskConfig: TRamDisk;
+
+function TfrmUI.ExecuteProcess(const AFileName, AParameters: string; AShowCmd: Word): Boolean;
+var
+  si: TStartupInfo;
+  pi: TProcessInformation;
+  CmdLine: string;
+begin
+  ZeroMemory(@si, SizeOf(si));
+  si.cb := SizeOf(si);
+  si.dwFlags := STARTF_USESHOWWINDOW;
+  si.wShowWindow := AShowCmd;
+
+  CmdLine := '"' + AFileName + '" ' + AParameters;
+  Result := CreateProcess(nil, PChar(CmdLine), nil, nil, False, 0, nil, nil, si, pi);
+  if Result then
+  begin
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+  end;
+end;
 
 procedure TfrmUI.btnApplyClick(Sender: TObject);
 var
@@ -93,20 +115,21 @@ begin
       Begin
         msg:=decodeException(E.ArsenalCode);
         If msg<>'' then MessageDlg(msg,mtError,[mbOK],0);
-      end;
-    else raise;
+      end
+    else
+      raise;
     End;
   end;
 end;
 
 procedure TfrmUI.btnLoadClick(Sender: TObject);
 var
-  dir,root:WideString;
+  dir,root:string;
 begin
   dir:='';
   root:=editFolder.Text;
   if root = '' then root:='::{20D04FE0-3AEA-1069-A2D8-08002B30309D}';
-  if WideSelectDirectory('Select folder to init the RAM-disk',root,dir) then editFolder.Text:=dir;
+  if SelectDirectory('Select folder to init the RAM-disk',root,dir) then editFolder.Text:=dir;
 end;
 
 procedure TfrmUI.btnQuitClick(Sender: TObject);
@@ -138,9 +161,10 @@ begin
       msg:=decodeException(E.ArsenalCode);
       If msg<>'' then MessageDlg(msg,mtError,[mbOK],0);
     end
-  else raise;
+  else
+    raise;
   end;
-end;
+}
 
 procedure TfrmUI.chkSyncClick(Sender: TObject);
 begin
@@ -154,10 +178,10 @@ end;
 
 Procedure TfrmUI.LoadSettings;
 var
-  reg: TTntRegistry;
+  reg: TRegistry;
   diskSize: Int64;
 Begin
-  reg:=TTntRegistry.Create(KEY_READ);
+  reg:=TRegistry.Create(KEY_READ);
   Try
     reg.RootKey:=HKEY_LOCAL_MACHINE;
     if Reg.OpenKey('\SYSTEM\CurrentControlSet\Services\'+serviceName, False) then
@@ -212,12 +236,12 @@ end;
 
 Procedure TfrmUI.SaveSettings;
 var
-  reg: TTntRegistry;
+  reg: TRegistry;
   diskSize: Int64;
   i:Integer;
-  s:WideString;
+  s:string;
 Begin
-  reg:=TTntRegistry.Create(KEY_WRITE);
+  reg:=TRegistry.Create(KEY_WRITE);
   Try
     reg.RootKey:=HKEY_LOCAL_MACHINE;
     if Reg.OpenKey('\SYSTEM\CurrentControlSet\Services\'+serviceName, True) then
@@ -229,7 +253,7 @@ Begin
       Begin
         s:=Trim(memoIgnore.Lines[i]);
         If s[2]=':' then s:=Copy(s,4,MaxInt);
-        If (s='')or(WidePosEx('\',s)>0)or(WidePosEx('/',s)>0) then memoIgnore.Lines.Delete(i)
+        If (s='')or(Pos('\',s)>0)or(Pos('/',s)>0) then memoIgnore.Lines.Delete(i)
         else
         Begin
           memoIgnore.Lines[i]:=s;
@@ -308,7 +332,8 @@ end;
 
 procedure TfrmUI.btnInstallClick(Sender: TObject);
 begin
-  if WinExec('RamService /install',SW_HIDE) < 32 then MessageDlg('Error occurred - probably RamService.exe is missing',mtError,[mbOK],0)
+  if not ExecuteProcess('RamService.exe', '/install', SW_HIDE) then
+    MessageDlg('Error occurred - probably RamService.exe is missing', mtError, [mbOK], 0)
   Else
   Begin
     btnInstall.Enabled:=False;
@@ -318,13 +343,14 @@ end;
 
 procedure TfrmUI.btnUninstallClick(Sender: TObject);
 begin
-  if WinExec('RamService /uninstall',SW_HIDE) < 32 then MessageDlg('Error occurred - probably RamService.exe is missing',mtError,[mbOK],0)
+  if not ExecuteProcess('RamService.exe', '/uninstall', SW_HIDE) then
+    MessageDlg('Error occurred - probably RamService.exe is missing', mtError, [mbOK], 0)
   Else
   Begin
     btnInstall.Enabled:=True;
     btnUninstall.Enabled:=False;
   end;
-end;
+}
 
 procedure TfrmUI.FormShow(Sender: TObject);
 Var
@@ -348,7 +374,8 @@ begin
       msg:=decodeException(E.ArsenalCode);
       If msg<>'' then MessageDlg(msg,mtError,[mbOK],0);
     end
-  else raise;
+  else
+    raise;
   End;
 end;
 

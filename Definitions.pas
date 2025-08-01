@@ -15,8 +15,8 @@ Type
     size: Int64;
     diskNumber: Integer; // \\?\PhysicalDriveXX
     volumeName: string; // \\?\Volume{12345678-1234-1234-1234-123456789abc}
-    persistentFolder: WideString;
-    excludedList: WideString;
+    persistentFolder: string;
+    excludedList: string;
     letter: Char;
     synchronize:Boolean;
     deleteOld:Boolean;
@@ -368,7 +368,8 @@ end;
 
 Function ImScsiOpenScsiAdapter(var PortNumber:Byte):THandle;
 Var
-  dosDevs, target: String;
+  dosDevs: array[0..MAX_DOS_NAMES-1] of TCHAR;
+  target: array[0..200-1] of TCHAR;
   devName: TUnicodeString;
   i, len: Integer;
   portNum: LongWord;
@@ -380,29 +381,26 @@ const
   scsiport_prefix = '\Device\Scsi\phdskmnt';
   storport_prefix = '\Device\RaidPort';
 Begin
-  SetLength(dosDevs, MAX_DOS_NAMES);
-  SetLength(target, 200);
-  len:=QueryDosDevice(NIL, PAnsiChar(dosDevs), Length(dosDevs));
+  len := QueryDosDevice(NIL, dosDevs, Length(dosDevs));
   if len = 0 then
   begin
     tmp:=GetLastError;
     raise Exception.Create('ImScsiOpenScsiAdapter:QueryDosDevice = ' + SysErrorMessage(tmp));
   end;
-  for i:=1 to len Do
-    if dosDevs[i] = #0 then dosDevs[i]:= #13;
+
   devices:=Nil;
   Result:=INVALID_HANDLE_VALUE;
   Try
     devices:=TStringList.Create;
-    devices.Text:=dosDevs;
+    devices.Text:=String(dosDevs);
     for i:=0 to devices.Count-1 do
     Begin
-      if (Copy(devices[i],1,4) = 'Scsi') And (AnsiLastChar(devices[i]) = ':') Then
+      if (Copy(devices[i],1,4) = 'Scsi') And (devices[i][Length(devices[i])] = ':') Then
       Begin
         portNum:=StrToInt(Copy(devices[i],5,Length(devices[i])-5));
         if portNum < 256 Then
         Begin
-          if QueryDosDevice(PAnsiChar(devices[i]), PAnsiChar(target), Length(target)) = 0 then
+          if QueryDosDevice(PChar(devices[i]), target, Length(target)) = 0 then
           try
             RaiseLastOSError;
           except

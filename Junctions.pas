@@ -7,11 +7,14 @@ unit Junctions;
 
 interface
 
+uses
+  SysUtils;
+
 const
     FILE_ATTRIBUTE_REPARSE_POINT = 1024;
 
-function GetSymLinkTarget(const AFilename: Widestring): Widestring;
-function CreateJunction(const ALink,ADest:WideString): Boolean;
+function GetSymLinkTarget(const AFilename: string): string;
+procedure CreateJunction(const ALink,ADest:string);
 
 implementation
 
@@ -57,79 +60,99 @@ type
 
   Function CreateSymbolicLinkW(Src,Target:PWideChar;Flags:Cardinal):BOOL; Stdcall; External 'kernel32.dll';
 
-function OpenDirectory(const ADir:WideString;bReadWrite:Boolean):THandle;
+function OpenDirectory(const ADir:string;bReadWrite:Boolean):THandle;
 var
   token:THandle;
   tp:TTokenPrivileges;
-  bp:WideString;
+  bp:string;
   dw,access:DWORD;
 begin
   // Obtain backup/restore privilege in case we don't have it
-  OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES, token);
-  If bReadWrite Then bp:='SeRestorePrivilege' else bp:='SeBackupPrivilege';
-  LookupPrivilegeValueW(NIL, PWideChar(bp), tp.Privileges[0].Luid);
-  tp.PrivilegeCount := 1;
-  tp.Privileges[0].Attributes := SE_PRIVILEGE_ENABLED;
-  AdjustTokenPrivileges(token, FALSE, tp, sizeof(TOKEN_PRIVILEGES), NIL, dw);
-  CloseHandle(token);
+  if not OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES, token) then
+    RaiseLastOSError;
+  try
+    If bReadWrite Then bp:='SeRestorePrivilege' else bp:='SeBackupPrivilege';
+    if not LookupPrivilegeValue(NIL, PChar(bp), tp.Privileges[0].Luid) then
+      RaiseLastOSError;
+    tp.PrivilegeCount := 1;
+    tp.Privileges[0].Attributes := SE_PRIVILEGE_ENABLED;
+    if not AdjustTokenPrivileges(token, FALSE, tp, sizeof(TOKEN_PRIVILEGES), NIL, dw) then
+      RaiseLastOSError;
+  finally
+    CloseHandle(token);
+  end;
 
   // Open the directory
   access:=GENERIC_READ;
   if bReadWrite then access:=access or GENERIC_WRITE;
-  Result := CreateFileW(PWideChar(ADir), access, 0, NIL, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT or FILE_FLAG_BACKUP_SEMANTICS, 0);
+  Result := CreateFile(PChar(ADir), access, 0, NIL, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT or FILE_FLAG_BACKUP_SEMANTICS, 0);
+  if Result = INVALID_HANDLE_VALUE then
+    RaiseLastOSError;
 end;
 
-function GetSymLinkTarget(const AFilename: WideString): Widestring;
+function GetSymLinkTarget(const AFilename: string): string;
 var
   hDir:THandle;
   nRes:DWORD;
+  reparseBuffer: TBytes;
   reparseInfo: PReparseDataBuffer;
   name2: array[0..MAX_NAME_LENGTH-1] of WideChar;
 begin
-  Result := '';
   hDir:= OpenDirectory(AFilename,False);
-  if hDir = INVALID_HANDLE_VALUE then Exit;
-  GetMem(reparseInfo,MAX_REPARSE_SIZE);
-  if DeviceIoControl(hDir, FSCTL_GET_REPARSE_POINT, nil, 0, reparseInfo, MAX_REPARSE_SIZE, nRes, nil) Then
-    If reparseInfo.ReparseTag = IO_REPARSE_TAG_MOUNT_POINT then
-    Begin
-      FillChar(name2, SizeOf(name2), 0);
-      lstrcpynW(name2, reparseInfo.PathBuffer + reparseInfo.SubstituteNameOffset, reparseInfo.SubstituteNameLength);
-      Result:= Copy(name2,5,Length(name2)); // remove the '\??\' prefix
-    end;
-  FreeMem(reparseInfo,MAX_REPARSE_SIZE);
-  CloseHandle(hDir);
+  try
+    SetLength(reparseBuffer, MAX_REPARSE_SIZE);
+    reparseInfo := PReparseDataBuffer(reparseBuffer);
+    if DeviceIoControl(hDir, FSCTL_GET_REPARSE_POINT, nil, 0, reparseInfo, MAX_REPARSE_SIZE, nRes, nil) Then
+    begin
+      If reparseInfo.ReparseTag = IO_REPARSE_TAG_MOUNT_POINT then
+      Begin
+        FillChar(name2, SizeOf(name2), 0);
+        lstrcpyn(name2, @reparseInfo.PathBuffer[reparseInfo.SubstituteNameOffset div 2], reparseInfo.SubstituteNameLength div 2);
+        Result:= Copy(name2,5,Length(name2)); // remove the '\??\' prefix
+      end
+      else
+        Result := '';
+    end
+    else
+      RaiseLastOSError;
+  finally
+    CloseHandle(hDir);
+  end;
 end;
 
 // target must NOT begin with "\??\" - it will be added automatically
-Function CreateJunction(const ALink,ADest:WideString):Boolean;
+procedure CreateJunction(const ALink,ADest:string);
 Const
-  LinkPrefix: WideString = '\??\';
+  LinkPrefix: string = '\\??\\';
 var
-  Buffer: PReparseMountPointDataBuffer;
+  Buffer: TBytes;
+  pBuffer: PReparseMountPointDataBuffer;
   BufSize: integer;
-  TargetName: WideString;
+  TargetName: string;
   hDir:THandle;
   dw:DWORD;
 Begin
-  Result:=False;
   hDir:=OpenDirectory(ALink,True);
-  If hDir = INVALID_HANDLE_VALUE then Exit;
-  If Pos(LinkPrefix,ADest)=1 then TargetName:=ADest else TargetName:=LinkPrefix+ADest;
-  BufSize:=(Length(TargetName)+1)*SizeOf(WideChar) + REPARSE_MOUNTPOINT_HEADER_SIZE + 12;
-  GetMem(Buffer,BufSize);
-  FillChar(Buffer^,BufSize,#0);
-  With Buffer^ Do
-  Begin
-    Move(TargetName[1], ReparseTarget, (Length(TargetName)+1)*SizeOf(WideChar));
-    ReparseTag:= IO_REPARSE_TAG_MOUNT_POINT;
-    ReparseTargetLength:= Length(TargetName)*SizeOf(WideChar);
-    ReparseTargetMaximumLength:= ReparseTargetLength+2;
-    ReparseDataLength:= ReparseTargetLength+12;
+  try
+    If Pos(LinkPrefix,ADest)=1 then TargetName:=ADest else TargetName:=LinkPrefix+ADest;
+    BufSize:=(Length(TargetName)+1)*SizeOf(WideChar) + REPARSE_MOUNTPOINT_HEADER_SIZE + 12;
+    SetLength(Buffer, BufSize);
+    pBuffer := PReparseMountPointDataBuffer(Buffer);
+
+    FillChar(pBuffer^,BufSize,#0);
+    With pBuffer^ Do
+    Begin
+      Move(TargetName[1], ReparseTarget, (Length(TargetName)+1)*SizeOf(WideChar));
+      ReparseTag:= IO_REPARSE_TAG_MOUNT_POINT;
+      ReparseTargetLength:= Length(TargetName)*SizeOf(WideChar);
+      ReparseTargetMaximumLength:= ReparseTargetLength+2;
+      ReparseDataLength:= ReparseTargetLength+12;
+    end;
+    if not DeviceIoControl(hDir,FSCTL_SET_REPARSE_POINT,pBuffer,pBuffer.ReparseDataLength + REPARSE_MOUNTPOINT_HEADER_SIZE,Nil,0,dw,Nil) then
+      RaiseLastOSError;
+  finally
+    CloseHandle(hDir);
   end;
-  Result:=DeviceIoControl(hDir,FSCTL_SET_REPARSE_POINT,Buffer,Buffer.ReparseDataLength + REPARSE_MOUNTPOINT_HEADER_SIZE,Nil,0,dw,Nil);
-  FreeMem(Buffer,BufSize);
-  CloseHandle(hDir);
 end;
 
 end.
