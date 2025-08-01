@@ -13,7 +13,9 @@
 *.dcu
 *.obj
 *.o
-*.res # Compiled resource files
+
+# Compiled resource files
+*.res 
 
 #-------------------------------------------------------------------------------
 # IDE Generated, User-Specific & Intermediate Files
@@ -21,8 +23,13 @@
 *.~*
 *.bak
 *.old
-*.tmp # General temporary files
-*.temp # General temporary files
+
+# General temporary files
+*.tmp 
+
+# General temporary files
+*.temp 
+
 *.local
 *.dsk
 *.cfg
@@ -39,9 +46,15 @@
 *.dproj.user
 *.groupproj.local
 *.groupproj.user
-*.bkm # Delphi IDE bookmarks
-*.tvsconfig # TestInsight configuration files
-*.history # Files with .history extension
+
+# Delphi IDE bookmarks
+*.bkm 
+
+# TestInsight configuration files
+*.tvsconfig 
+
+# Files with .history extension
+*.history 
 
 # Legacy project files
 *.dof
@@ -75,5 +88,9 @@
 #-------------------------------------------------------------------------------
 # Common Temporary / Local / Sensitive Files (General)
 #-------------------------------------------------------------------------------
-*.zip # General compressed archives (often backups or downloads)
-*.env # Environment variable files (CRITICAL for sensitive data)
+# General compressed archives (often backups or downloads)
+*.zip 
+
+# Environment variable files (CRITICAL for sensitive data)
+*.env 
+
