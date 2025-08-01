@@ -4,4 +4,5 @@
 *.bkm
 *.drc
 *.zip
-dcu
+*.dcu
+*.env
