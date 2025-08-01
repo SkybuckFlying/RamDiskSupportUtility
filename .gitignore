@@ -76,4 +76,4 @@
 # Common Temporary / Local / Sensitive Files (General)
 #-------------------------------------------------------------------------------
 *.zip # General compressed archives (often backups or downloads)
-.env # Environment variable files (CRITICAL for sensitive data)
+*.env # Environment variable files (CRITICAL for sensitive data)
